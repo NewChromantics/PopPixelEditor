@@ -20,11 +20,12 @@ namespace Pop
 			EditorWindow.GetWindow(typeof(PixelEditorWindow));
 		}
 
-		const int ViewDragButton = 2;	//	0left 1right 2middle
-		Texture2D	CurrentTexture = null;
-		bool		CurrentTextureDirty = false;
-		Rect?		LastScreenRect = null;
-		Rect?		LastTextureRect = null;
+		const int		ViewDragButton = 2;	//	0left 1right 2middle
+		Texture2D		CurrentTexture = null;
+		bool			CurrentTextureDirty = false;
+		Material		PreviewMaterial;
+		Rect?			LastScreenRect = null;
+		Rect?			LastTextureRect = null;
 
 		[Range(1,10)]
 		public float	Zoom = 1;
@@ -215,8 +216,13 @@ namespace Pop
 
 			//	supposed to only render in a repaint event
 			//	https://docs.unity3d.com/ScriptReference/Graphics.DrawTexture.html
-			if (Event.current.type == EventType.Repaint)
-				Graphics.DrawTexture (ScreenRect, Texture, ViewRect, Border,Border,Border,Border );
+			if (Event.current.type == EventType.Repaint) 
+			{
+				if ( PreviewMaterial != null )
+					Graphics.DrawTexture( ScreenRect, Texture, ViewRect, Border, Border, Border, Border, PreviewMaterial );
+				else
+					Graphics.DrawTexture( ScreenRect, Texture, ViewRect, Border, Border, Border, Border);
+			}
 		}
 
 		void OnTextureGui(Texture2D Texture)
@@ -238,6 +244,9 @@ namespace Pop
 
 
 			ModifyAlpha = EditorGUILayout.Toggle ("Modify Alpha", ModifyAlpha,  new GUILayoutOption[]{});
+
+			PreviewMaterial = EditorGUILayout.ObjectField ("Preview Shader", PreviewMaterial, typeof(Material), true, null) as Material;
+
 
 			var Options = new GUILayoutOption[]{	GUILayout.ExpandWidth (true), GUILayout.ExpandHeight (true) };
 			var ScreenRect = EditorGUILayout.GetControlRect (Options);
@@ -274,15 +283,15 @@ namespace Pop
 		{
 			EditorGUILayout.HelpBox ("Select a texture asset", MessageType.Error);
 
-			EditorGUILayout.HelpBox ("Create new texture asset (PNG)", MessageType.Info);
+			EditorGUILayout.HelpBox ("Create new texture asset", MessageType.Info);
 			NewTexture_Width = EditorGUILayout.IntSlider ("Width", NewTexture_Width, 0, 4096, null);
 			NewTexture_Height = EditorGUILayout.IntSlider ("Height", NewTexture_Height, 0, 4096, null);
 			NewTexture_Colour = EditorGUILayout.ColorField("Colour", NewTexture_Colour );
 
 			//	show shader option when there's no material
 			if ( NewTexture_InitMaterial == null )
-				NewTexture_InitShader = EditorGUILayout.ObjectField ("Initialise with blit", NewTexture_InitShader, NewTexture_InitShader.GetType(), true, null) as Shader;
-			NewTexture_InitMaterial = EditorGUILayout.ObjectField ("Initialise with blit", NewTexture_InitMaterial, NewTexture_InitMaterial.GetType(), true, null) as Material;
+				NewTexture_InitShader = EditorGUILayout.ObjectField ("Initialise with blit", NewTexture_InitShader, typeof(Shader), true, null) as Shader;
+			NewTexture_InitMaterial = EditorGUILayout.ObjectField ("Initialise with blit", NewTexture_InitMaterial, typeof(Material), true, null) as Material;
 
 			System.Func<Texture2D,byte[]> EncodePng = (Texture) => {
 				return Texture.EncodeToPNG ();
