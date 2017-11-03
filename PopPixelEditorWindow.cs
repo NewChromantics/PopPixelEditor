@@ -61,6 +61,43 @@ namespace Pop
 			SetCurrentTexture (SelectedTexture);
 		}
 
+
+		void OnMouseDraw(int x,int y,int Button)
+		{
+			var DrawColour = (Button == 0) ? Color.red : new Color (0, 1, 0, 0);
+			CurrentTexture.SetPixel (x, y, DrawColour);
+			CurrentTexture.Apply ();
+			OnTextureChanged ();
+		}
+
+		bool ScreenRectToTexture(Vector2 Mousexy,ref int Texturex,ref int Texturey)
+		{
+			var ScreenRect = LastScreenRect.Value;
+
+			var Mousex = Mousexy.x;
+			var Mousey = Mousexy.y;
+			float u = (Mousex - ScreenRect.x) / (ScreenRect.width);
+			float v = (Mousey - ScreenRect.y) / (ScreenRect.height);
+
+			var TextureRect = LastTextureRect.Value;
+
+
+
+			Texturex = (int)(TextureRect.x + (TextureRect.width * u));
+			Texturey = (int)(TextureRect.y + (TextureRect.height * v));
+
+			//	need to convert to UV (flipped) and back to a pixel again
+			var Texture = GetEditingTexture ();
+			var TextureCoords = new Rect (Texturex, Texturey, 1, 1);
+			TextureCoords = PixelRectToViewportRect (TextureCoords, Texture.width, Texture.height);
+			Texturex = (int)(TextureCoords.x * Texture.width);
+			Texturey = (int)(TextureCoords.y * Texture.height);
+
+			//Debug.Log ("x=" + Texturex + " y=" + Texturey);
+
+			return (u>=0) && (v>=0) && (u<1) && (v<1);
+		}
+
 		void OnMouseEvent(Event MouseEvent)
 		{
 			if (MouseEvent.isScrollWheel) {
@@ -79,7 +116,25 @@ namespace Pop
 				}
 			}
 
-			if ( MouseEvent.type != EventType.mouseMove )
+			switch (MouseEvent.type) {
+			//case EventType.MouseMove:
+				//if ( MouseEvent.button
+			case EventType.MouseDrag:
+			case EventType.MouseDown:
+				try {
+					int Texturex = -1, Texturey = -1;
+					if (ScreenRectToTexture (MouseEvent.mousePosition, ref Texturex, ref Texturey))
+					{
+						OnMouseDraw (Texturex, Texturey, MouseEvent.button);
+						return;
+					}
+				} catch (System.Exception e) {
+					Debug.LogException (e);
+				}
+				break;
+			}
+
+			//if ( MouseEvent.type != EventType.mouseMove )
 				Debug.Log("Current detected event: " + MouseEvent);
 		}
 
@@ -104,6 +159,11 @@ namespace Pop
 		void OnGuiChanged()
 		{
 			this.Repaint ();
+		}
+
+		void OnTextureChanged()
+		{
+			OnGuiChanged ();
 		}
 
 		void PromptUserToSaveChanges()
@@ -208,21 +268,23 @@ namespace Pop
 
 		void DrawTexture(Texture2D Texture,Rect ScreenRect,Rect TextureRect)
 		{
+			//	supposed to only render in a repaint event
+			//	https://docs.unity3d.com/ScriptReference/Graphics.DrawTexture.html
+			//	gr: rect is 0,0,1,1 if not repaint, so don't wanna save that
+			if (Event.current.type != EventType.Repaint)
+				return;
+			
 			LastScreenRect = ScreenRect;
 			LastTextureRect = TextureRect;
 
 			var ViewRect = PixelRectToViewportRect (TextureRect, Texture.width, Texture.height);
 			var Border = 0;
 
-			//	supposed to only render in a repaint event
-			//	https://docs.unity3d.com/ScriptReference/Graphics.DrawTexture.html
-			if (Event.current.type == EventType.Repaint) 
-			{
-				if ( PreviewMaterial != null )
-					Graphics.DrawTexture( ScreenRect, Texture, ViewRect, Border, Border, Border, Border, PreviewMaterial );
-				else
-					Graphics.DrawTexture( ScreenRect, Texture, ViewRect, Border, Border, Border, Border);
-			}
+		
+			if ( PreviewMaterial != null )
+				Graphics.DrawTexture( ScreenRect, Texture, ViewRect, Border, Border, Border, Border, PreviewMaterial );
+			else
+				Graphics.DrawTexture( ScreenRect, Texture, ViewRect, Border, Border, Border, Border);
 		}
 
 		void OnTextureGui(Texture2D Texture)
