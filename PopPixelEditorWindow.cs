@@ -20,12 +20,21 @@ namespace Pop
 			EditorWindow.GetWindow(typeof(PixelEditorWindow));
 		}
 
+		struct PixelChange
+		{
+			int		x;
+			int		y;
+			Color	OldColour;
+			Color	NewColour;
+		};
+
 		const int		ViewDragButton = 2;	//	0left 1right 2middle
 		Texture2D		CurrentTexture = null;
 		bool			CurrentTextureDirty = false;
 		Material		PreviewMaterial;
 		Rect?			LastScreenRect = null;
 		Rect?			LastTextureRect = null;
+		List<PixelChange>	ChangeHistory;
 
 		[Range(1,10)]
 		public float	Zoom = 1;
@@ -163,6 +172,7 @@ namespace Pop
 
 		void OnTextureChanged()
 		{
+			CurrentTextureDirty = true;
 			OnGuiChanged ();
 		}
 
@@ -170,9 +180,34 @@ namespace Pop
 		{
 		}
 
+
+
+		void Revert()
+		{
+			var Path = UnityEditor.AssetDatabase.GetAssetPath (CurrentTexture);
+			AssetDatabase.ImportAsset (Path);
+			CurrentTexture = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(Path);
+			CurrentTextureDirty = false;
+		}
+
 		void SaveChanges()
 		{
+			var Asset = CurrentTexture;
+			var Path = UnityEditor.AssetDatabase.GetAssetPath (Asset);
+			byte[] FileData = null;
+			var Extension = System.IO.Path.GetExtension (Path).ToLower();
+				
+			if ( Extension == ".png" )
+				FileData = CurrentTexture.EncodeToPNG ();
+
+			if (FileData == null)
+				throw new System.Exception ("Don't know how to save texture with extension " + Extension);
+
+			System.IO.File.WriteAllBytes( Path, FileData );
+			AssetDatabase.Refresh();
+			//CurrentTexture = SaveAsset( CurrentTexture, "asset,png" );
 			CurrentTextureDirty = false;
+			OnGuiChanged ();
 		}
 
 		void SetCurrentTexture(Texture2D NewTexture)
@@ -290,6 +325,22 @@ namespace Pop
 		void OnTextureGui(Texture2D Texture)
 		{
 			EditorGUILayout.HelpBox ("Editing " + Texture.name + "", MessageType.Info);
+
+			EditorGUILayout.BeginHorizontal ( GUILayout.ExpandWidth(true));
+			{
+				GUI.enabled = CurrentTextureDirty;
+				if (GUILayout.Button ("Save")) {
+					SaveChanges ();
+				}
+				GUI.enabled = true;
+
+				GUI.enabled = CurrentTextureDirty;
+				if (GUILayout.Button ("Revert to asset")) {
+					Revert ();
+				}
+				GUI.enabled = true;
+			}
+			EditorGUILayout.EndHorizontal ();
 
 			//	render options
 			try
