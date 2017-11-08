@@ -6,7 +6,7 @@
 
 		TransparentColour0("TransparentColour0", COLOR ) = ( 0.5,0.7,1.0,1)
 		TransparentColour1("TransparentColour1", COLOR ) = ( 0.9,0.9,0.9,1)
-		TransparentSize("TransparentSize", Range(2,50) ) = 4
+		TransparentSize("TransparentSize", Range(4,50) ) = 4
 
 		GridColour0("GridColour0", COLOR ) = ( 0.9,0.9,0.9,1)
 		GridSize0("GridSize0", Range(1,50) ) = 1
@@ -48,11 +48,11 @@
 			float4 GridColour0;
 			float GridSize0;
 
-
+			float4 ScreenRect;
 
 			float3 GetTransparentColour(float2 uv)
 			{
-				uv *= _MainTex_TexelSize.zw;
+				uv *= ScreenRect.zw;
 				float2 TransparentUv = fmod( uv, float2(TransparentSize*2,TransparentSize*2) ) / float2(TransparentSize,TransparentSize);
 				int TransparentColour = floor( TransparentUv.x ) + ( 2 * floor( TransparentUv.y ) );
 				float3 TransparentColours[4];
@@ -73,15 +73,17 @@
 
 			float4 GetGridColour(float4 GridColour,float GridSize,float2 uv)
 			{
-				uv *= _MainTex_TexelSize.zw;
+				/*
+				uv *= ScreenRect.zw;
+
 				float2 Griduv = fmod( uv, float2(GridSize,GridSize) );
 
 				//	gr: work out how to make this a minimum of 1 pixel for the screen.
-				float GridThickness = 0.1f;
+				float GridThickness = 1;
 
-				if ( Griduv.x > GridThickness && Griduv.y > GridThickness )
-					GridColour.w = 0;
-
+				if ( Griduv.x > GridThickness && Griduv.y > GridThickness && Griduv.x < (1-GridThickness) && Griduv.y < (1-GridThickness) )
+				*/	GridColour.w = 0;
+				
 				return GridColour;
 			}
 

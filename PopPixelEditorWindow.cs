@@ -7,8 +7,66 @@ using UnityEditor;
 #endif
 
 
-namespace Pop
+namespace PopX
 {
+	class PixelTexturePostprocessor : AssetPostprocessor
+	{
+		//	this is a list of assets we need to handle
+		static public List<string>		HandleAssetPaths;
+
+		static int?						GetHandleAssetIndex (string AssetPath)
+		{			
+			System.Predicate<string> Match = (filename) => 
+			{
+				return AssetPath == filename;
+			};
+
+			if (HandleAssetPaths == null)
+				return null;
+			var Index = HandleAssetPaths.FindIndex (Match);
+			if (Index < 0)
+				return null;
+			return Index;
+		}
+
+		static public void				HandleAsset(string AssetPath)
+		{
+			if ( HandleAssetPaths == null )
+				HandleAssetPaths = new List<string>();
+
+			var HandleAssetIndex = GetHandleAssetIndex (AssetPath);
+			if ( HandleAssetIndex.HasValue )
+				return;
+
+			HandleAssetPaths.Add( AssetPath );
+		}
+		
+		void OnPreprocessTexture()
+		{
+			//	Assets/xyz.xyz
+			var HandleAssetIndex = GetHandleAssetIndex (this.assetPath);
+			if ( !HandleAssetIndex.HasValue )
+				return;
+
+			try
+			{
+				var Importer = assetImporter as TextureImporter;
+				Importer.textureCompression = TextureImporterCompression.Uncompressed;
+				Importer.filterMode = FilterMode.Point;
+				Importer.isReadable = true;
+				Importer.npotScale = TextureImporterNPOTScale.None;
+				Importer.mipmapEnabled = false;
+				Importer.alphaIsTransparency = true;
+				//Importer.textureType = TextureImporterType.Sprite;
+
+				HandleAssetPaths.RemoveAt( HandleAssetIndex.Value );
+			}
+			catch(System.Exception e)
+			{
+			}
+		}
+	}
+	
 	#if UNITY_EDITOR
 	public class PixelEditorWindow : EditorWindow
 	{		
@@ -36,18 +94,19 @@ namespace Pop
 		Rect?			LastTextureRect = null;
 		List<PixelChange>	ChangeHistory;
 
-		[Range(1,10)]
+		[Range(1,500)]
 		public float	Zoom = 1;
 		public float	ScrollX = 0;
 		public float	ScrollY = 0;
 		bool			ModifyAlpha = false;
-
+		Color			LeftColour = new Color (1, 1, 1, 1);
+		Color			RightColour = new Color (0, 0, 0, 0);
 
 
 		//	attributes for new texture
 		int				NewTexture_Width = 16;
 		int				NewTexture_Height = 16;
-		Color			NewTexture_Colour = Color.green;
+		Color			NewTexture_Colour	{	get{	return LeftColour;	}	set {	LeftColour = value;	}}
 		Shader			NewTexture_InitShader = null;
 		Material		NewTexture_InitMaterial = null;
 
@@ -73,7 +132,7 @@ namespace Pop
 
 		void OnMouseDraw(int x,int y,int Button)
 		{
-			var DrawColour = (Button == 0) ? Color.red : new Color (0, 1, 0, 0);
+			var DrawColour = (Button == 0) ? LeftColour : RightColour;
 			CurrentTexture.SetPixel (x, y, DrawColour);
 			CurrentTexture.Apply ();
 			OnTextureChanged ();
@@ -115,14 +174,17 @@ namespace Pop
 				return;
 			}
 
-			if ( MouseEvent.type == EventType.mouseDrag )
+
+			//	avoid triggering mouse up/down events
+			if (MouseEvent.button == ViewDragButton) 
 			{
-				if (MouseEvent.button == ViewDragButton) {
+				if ( MouseEvent.type == EventType.mouseDrag )
+				{
 					ScrollX -= MouseEvent.delta.x / Zoom;
 					ScrollY -= MouseEvent.delta.y / Zoom;
 					OnGuiChanged ();
-					return;
 				}
+				return;
 			}
 
 			switch (MouseEvent.type) {
@@ -138,7 +200,7 @@ namespace Pop
 						return;
 					}
 				} catch (System.Exception e) {
-					Debug.LogException (e);
+					//Debug.LogException (e);
 				}
 				break;
 			}
@@ -208,6 +270,27 @@ namespace Pop
 			//CurrentTexture = SaveAsset( CurrentTexture, "asset,png" );
 			CurrentTextureDirty = false;
 			OnGuiChanged ();
+		}
+
+		//	use this to add/remove alpha channel
+		void ChangeFormat(TextureFormat NewFormat)
+		{
+			//	gr: this isn't copying params properly
+			if (CurrentTexture.format == NewFormat)
+				return;
+
+			var NewTexture = new Texture2D (CurrentTexture.width, CurrentTexture.height, NewFormat, false);
+			var Colours = CurrentTexture.GetPixels ();
+
+			EditorUtility.CopySerialized (CurrentTexture, NewTexture);
+
+			NewTexture.SetPixels (Colours);
+
+			var AssetPath = UnityEditor.AssetDatabase.GetAssetPath (CurrentTexture);
+			UnityEditor.AssetDatabase.CreateAsset (NewTexture, AssetPath);
+			CurrentTexture = NewTexture;
+
+			SaveChanges ();
 		}
 
 		void SetCurrentTexture(Texture2D NewTexture)
@@ -316,10 +399,12 @@ namespace Pop
 			var Border = 0;
 
 		
-			if ( PreviewMaterial != null )
-				Graphics.DrawTexture( ScreenRect, Texture, ViewRect, Border, Border, Border, Border, PreviewMaterial );
-			else
-				Graphics.DrawTexture( ScreenRect, Texture, ViewRect, Border, Border, Border, Border);
+			if (PreviewMaterial != null) {
+				PreviewMaterial.SetVector ("ScreenRect", new Vector4 (0, 0, ScreenRect.width, ScreenRect.height));
+				Graphics.DrawTexture (ScreenRect, Texture, ViewRect, Border, Border, Border, Border, PreviewMaterial);
+			} else {
+				Graphics.DrawTexture (ScreenRect, Texture, ViewRect, Border, Border, Border, Border);
+			}
 		}
 
 		void OnTextureGui(Texture2D Texture)
@@ -339,26 +424,57 @@ namespace Pop
 					Revert ();
 				}
 				GUI.enabled = true;
+
+				/*
+				if (CurrentTexture.format == TextureFormat.ARGB32) {
+					if (GUILayout.Button ("Remove alpha channel")) {
+						ChangeFormat (TextureFormat.RGB24);
+					}
+				} else if (CurrentTexture.format == TextureFormat.RGB24) {
+					if (GUILayout.Button ("Add alpha channel")) {
+						ChangeFormat (TextureFormat.ARGB32);
+					}
+				} else {
+					GUI.enabled = false;
+					if (GUILayout.Button ("Change format")) {
+					}
+					GUI.enabled = true;
+				}
+				*/
 			}
 			EditorGUILayout.EndHorizontal ();
 
-			//	render options
-			try
+
+			EditorGUILayout.BeginHorizontal ( GUILayout.ExpandWidth(true));
 			{
-				var Range = GetRangeAttributeRange( this, "Zoom" );
-				Zoom = EditorGUILayout.Slider( "Zoom", Zoom, Range.x, Range.y, null );
+				//	render options
+				try {
+					var Range = GetRangeAttributeRange (this, "Zoom");
+					Zoom = EditorGUILayout.Slider ("Zoom", Zoom, Range.x, Range.y, null);
+				} catch {
+					Zoom = EditorGUILayout.FloatField ("Zoom", Zoom);
+				}
 			}
-			catch {
-				Zoom = EditorGUILayout.FloatField ("Zoom",Zoom);
+			EditorGUILayout.EndHorizontal ();
+
+
+			EditorGUILayout.BeginHorizontal ( GUILayout.ExpandWidth(true));
+			{
+				ScrollX = EditorGUILayout.Slider ("Scroll X", ScrollX, 0, Texture.width, null);
+				ScrollY = EditorGUILayout.Slider ("Scroll Y", ScrollY, 0, Texture.height, null);
 			}
+			EditorGUILayout.EndHorizontal ();
 
-			ScrollX = EditorGUILayout.Slider( "Scroll X", ScrollX, 0, Texture.width, null );
-			ScrollY = EditorGUILayout.Slider( "Scroll Y", ScrollY, 0, Texture.height, null );
-
-
-			ModifyAlpha = EditorGUILayout.Toggle ("Modify Alpha", ModifyAlpha,  new GUILayoutOption[]{});
+			//ModifyAlpha = EditorGUILayout.Toggle ("Modify Alpha", ModifyAlpha,  new GUILayoutOption[]{});
 
 			PreviewMaterial = EditorGUILayout.ObjectField ("Preview Shader", PreviewMaterial, typeof(Material), true, null) as Material;
+
+			EditorGUILayout.BeginHorizontal ( GUILayout.ExpandWidth(true));
+			{
+				LeftColour = EditorGUILayout.ColorField (new GUIContent ("Left Colour"), LeftColour, true, true, false, null, null);
+				RightColour = EditorGUILayout.ColorField (new GUIContent ("Right Colour"), RightColour, true, true, false, null, null);
+			}
+			EditorGUILayout.EndHorizontal ();
 
 
 			var Options = new GUILayoutOption[]{	GUILayout.ExpandWidth (true), GUILayout.ExpandHeight (true) };
@@ -366,7 +482,7 @@ namespace Pop
 			var ViewRect = GetTextureViewRect (Texture.width, Texture.height);
 
 			//	modify rendering rects to preserve aspect
-			var Ratio = Texture.width / Texture.height;
+			var Ratio = Texture.width / (float)Texture.height;
 			if (Ratio > 1) {
 				ScreenRect.height = ScreenRect.width / Ratio;
 				ViewRect.height = ViewRect.width / Ratio;
@@ -377,7 +493,7 @@ namespace Pop
 
 			DrawTexture (Texture, ScreenRect, ViewRect);
 
-			EditorGUILayout.HelpBox ("Footer.", MessageType.Info);
+			//EditorGUILayout.HelpBox ("Footer.", MessageType.Info);
 
 
 			/*
@@ -391,6 +507,23 @@ namespace Pop
 			*/
 		}
 
+
+		Texture2D ReloadAsset(string AssetPath)
+		{
+			if (!AssetPath.StartsWith (Application.dataPath))
+				throw new System.Exception ("Asset path not in project; " + AssetPath);
+			
+			AssetPath = AssetPath.Remove (0, Application.dataPath.Length);
+			AssetPath = "Assets" + AssetPath;
+
+			PixelTexturePostprocessor.HandleAsset (AssetPath);
+
+			AssetDatabase.Refresh();
+			AssetDatabase.ImportAsset (AssetPath, ImportAssetOptions.ForceUpdate);
+			var NewAsset = AssetDatabase.LoadAssetAtPath<Texture2D> (AssetPath);
+
+			return NewAsset;
+		}
 
 		void OnNewTextureGUI()
 		{
@@ -465,19 +598,13 @@ namespace Pop
 				
 				System.IO.File.WriteAllBytes( Filename, Bytes );
 
-				//	make new file show up
-				AssetDatabase.Refresh();
+
 
 				//	try and select new asset 
 				var AssetPath = Filename;
-				if (AssetPath.StartsWith (Application.dataPath)) {
-					AssetPath = AssetPath.Remove (0, Application.dataPath.Length);
-					AssetPath = "Assets" + AssetPath;
-					var NewAsset = AssetDatabase.LoadAssetAtPath<Texture2D> (AssetPath);
-					if (NewAsset != null) {
-						//	gr: unity by default imports at power of 2... see if we can fix that
-						UnityEditor.Selection.activeObject = NewAsset;
-					}
+				var NewAsset = ReloadAsset (AssetPath);
+				if (NewAsset != null) {
+					UnityEditor.Selection.activeObject = NewAsset;
 				}
 			}
 
